@@ -1,25 +1,18 @@
-# voxel-notes
+This format worked so well with my AWS and Vulkan notes, I decided to apply it to all of my notes
 
-Living study notes on **voxels and voxel algorithms** — how a 3D grid of cells is
-stored, generated, meshed, rendered, optimized, simulated, and applied. Built as a
-no-build [docsify](https://docsify.js.org) site under [`notes/`](./notes), structured
-as a two-scale onion (9 domains, each peeling from a coarse mental model inward to
-specifics).
+# Where
 
-## read it
+**read the site - https://aahl-byte.github.io/voxel-notes/**
 
-- **Deployed:** GitHub Pages (see `.github/workflows/deploy-pages.yml`).
-- **Locally:** `make serve` (or `cd notes && python3 -m http.server 3000`), then open
-  the printed URL.
+# Why?
 
-## what's inside
+I generated this repo to learn about voxels, but I'm a little odd... I need things explained in a certain way: with the WHY before the HOW, and I need it explained simply;
 
-- `notes/` — the self-contained docsify site: 9 domains, 52 pages.
-- `notes/papers/` — local PDFs of the open-access papers cited across the notes, so
-  the primary sources travel with the repo. Pages link both the local PDF and the
-  original source.
-- `CLAUDE.md` — house style and conventions for editing the notes.
-- `Makefile` — `make serve` / `open` / `stop` / `verify`.
+This project is specifically structured to dive into all about voxels, beginning with an overview/mental model and progressively diving deeper into the details. 
 
-The domains, in dependency order: **foundations → storing → generating → surface
-extraction → rendering → engines → optimization → simulation → advanced applications.**
+White papers, blogs and other resources are linked to jumpstart deeper delves into each concept
+
+---
+
+*FYI - I'm using AI to compile, organize, hydrate and enhance all of the notes in this repo*
+*this repo is entirely AI developed using a wave of deep-research agents to fill out a skeleton note architecture*
