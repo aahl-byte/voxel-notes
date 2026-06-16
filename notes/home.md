@@ -7,9 +7,6 @@ that stores, builds, meshes, renders, and simulates that grid. built to give you
 <em>mental model</em> first and the fine print last, so you can stop at any depth and
 still understand the shape of things.
 
-> these are a skeleton right now. every page is a placeholder describing what it will
-> cover; the full notes get written next.
-
 ## how these notes are structured
 
 two onions. the **domains** down the sidebar go in dependency order — each rests on
