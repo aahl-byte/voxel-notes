@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>study notes</title>
+  <meta name="description" content="living study notes — built onion-first, outcome before primitive" />
+  <!-- structural base; all colors are overridden by globals.css -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css" />
+  <!-- the palette source of truth -->
+  <link rel="stylesheet" href="./css/globals.css" />
+</head>
+<body>
+  <div id="app">loading the notes…</div>
+  <script>
+    /* ───────────────────────────────────────────────────────────────────────
+       notesSearch — full-text search rendered on its own page (#notes-search
+       container in search.md). Unlike docsify's built-in search, results carry
+       the onion breadcrumb: DOMAIN · phase · chapter (read from _sidebar.md)
+       plus the heading › sub-heading trail (read from each page). The sidebar
+       phase level is OPTIONAL — single-phase domains list pages directly and
+       still index fine.
+       ─────────────────────────────────────────────────────────────────────── */
+    function notesSearch(hook) {
+      var structure = null;   // [{domain, phase, chapter, path}] from the sidebar
+      var index = null;       // flattened [{...breadcrumb, anchor, text}] sections
+      var buildPromise = null;
+
+      function siteRoot() {
+        return location.href.split('#')[0].replace(/index\.html$/, '');
+      }
+      function fetchText(url) {
+        return fetch(url).then(function (r) { return r.ok ? r.text() : ''; });
+      }
+      function escapeHtml(s) {
+        return s.replace(/[&<>"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+        });
+      }
+      // mirrors docsify's own heading slugify so result links hit the anchor
+      // (same punctuation-strip range, spaces→dashes, digit-prefix guard)
+      function slugify(text) {
+        return text.toLowerCase().trim()
+          .replace(/<[^>]+>/g, '')
+          .replace(/[ -⁯⸀-⹿\\'!"#$%&()*+,./:;<=>?@[\]^`{|}~]/g, '')
+          .replace(/\s/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^(\d)/, '_$1');
+      }
+
+      // ── read domain / phase / chapter from _sidebar.md ──
+      // indent 0 bold = DOMAIN; indent 2 bold = PHASE (optional); links = pages.
+      function parseSidebar(md) {
+        var out = [], domain = '', phase = '';
+        md.split(/\r?\n/).forEach(function (line) {
+          var m = line.match(/^(\s*)-\s+(.*)$/);
+          if (!m) return;
+          var indent = m[1].length, body = m[2].trim();
+          var label = body.replace(/<small>[\s\S]*?<\/small>/g, '').trim();
+          var bold = label.match(/^\*\*(.+?)\*\*$/);
+          var link = body.match(/^\[([^\]]+)\]\((\/[^)]+\.md)\)/);
+          if (indent === 0 && bold) {
+            domain = bold[1].replace(/&nbsp;/g, '').trim();
+            phase = '';
+          } else if (indent === 2 && bold) {
+            phase = bold[1].trim();
+          } else if (link) {
+            if (/\/search\.md$/.test(link[2])) return; // don't index the search page
+            out.push({ domain: domain, phase: phase, chapter: link[1].trim(), path: link[2] });
+          }
+        });
+        return out;
+      }
+
+      // ── split one page into heading-scoped sections with a heading trail ──
+      function indexPage(page, md) {
+        var entries = [], inFence = false;
+        var trail = { h2: null, h3: null, h4: null };
+        var cur = { trail: [], anchor: '', text: '' };
+        function push() { if (cur && (cur.text.trim() || cur.trail.length)) entries.push(cur); }
+        md.split(/\r?\n/).forEach(function (line, i) {
+          if (i === 0 && /^<link /.test(line)) return;     // skip the stylesheet line
+          if (/^```/.test(line)) { inFence = !inFence; return; }
+          if (inFence) { cur.text += ' ' + line; return; }
+          var h = line.match(/^(#{1,4})\s+(.*)$/);
+          if (h) {
+            push();
+            var level = h[1].length, txt = h[2].trim();
+            if (level === 1) { trail = { h2: null, h3: null, h4: null }; cur = { trail: [], anchor: '', text: '' }; return; }
+            if (level === 2) { trail.h2 = txt; trail.h3 = null; trail.h4 = null; }
+            if (level === 3) { trail.h3 = txt; trail.h4 = null; }
+            if (level === 4) { trail.h4 = txt; }
+            var t = [trail.h2, trail.h3, trail.h4].filter(Boolean);
+            cur = { trail: t.slice(), anchor: slugify(txt), text: txt + ' ' };
+          } else {
+            cur.text += ' ' + line.replace(/<\/?em>/g, '');
+          }
+        });
+        push();
+        return entries.map(function (e) {
+          return {
+            domain: page.domain, phase: page.phase, chapter: page.chapter, path: page.path,
+            trail: e.trail, anchor: e.anchor, text: e.text.replace(/\s+/g, ' ').trim()
+          };
+        });
+      }
+
+      function buildIndex() {
+        if (index) return Promise.resolve();
+        if (buildPromise) return buildPromise;
+        var root = siteRoot();
+        buildPromise = Promise.all(structure.map(function (p) {
+          return fetchText(root + p.path.replace(/^\//, '')).then(function (md) { return indexPage(p, md); });
+        })).then(function (chunks) {
+          index = chunks.reduce(function (a, b) { return a.concat(b); }, []);
+        });
+        return buildPromise;
+      }
+
+      function search(query) {
+        var terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+        if (!terms.length) return [];
+        var scored = [];
+        index.forEach(function (e) {
+          var head = (e.domain + ' ' + e.phase + ' ' + e.chapter + ' ' + e.trail.join(' ')).toLowerCase();
+          var body = e.text.toLowerCase();
+          var hay = head + ' ' + body;
+          if (!terms.every(function (t) { return hay.indexOf(t) !== -1; })) return;
+          var score = 0;
+          terms.forEach(function (t) {
+            if (head.indexOf(t) !== -1) score += 6;
+            var p = 0; while ((p = body.indexOf(t, p)) !== -1) { score++; p += t.length; }
+          });
+          scored.push({ e: e, score: score });
+        });
+        scored.sort(function (a, b) { return b.score - a.score; });
+        return scored.slice(0, 30).map(function (r) { return r.e; });
+      }
+
+      function snippet(text, terms) {
+        var lower = text.toLowerCase(), pos = -1;
+        terms.forEach(function (t) { var p = lower.indexOf(t); if (p !== -1 && (pos === -1 || p < pos)) pos = p; });
+        if (pos === -1) pos = 0;
+        var start = Math.max(0, pos - 70), end = Math.min(text.length, pos + 130);
+        var snip = (start > 0 ? '… ' : '') + text.slice(start, end) + (end < text.length ? ' …' : '');
+        snip = escapeHtml(snip);
+        terms.forEach(function (t) {
+          var re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+          snip = snip.replace(re, '<mark>$1</mark>');
+        });
+        return snip;
+      }
+
+      function hrefFor(e) {
+        var p = e.path.replace(/^\//, '').replace(/\.md$/, '');
+        return '#/' + p + (e.anchor ? '?id=' + e.anchor : '');
+      }
+
+      function render(container, query) {
+        var terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+        var box = container.querySelector('.ns-results');
+        var results = search(query);
+        if (!results.length) {
+          box.innerHTML = '<p class="ns-empty">no matches for “' + escapeHtml(query) + '”.</p>';
+          return;
+        }
+        box.innerHTML = results.map(function (e) {
+          var crumb = '<span class="ns-domain">' + escapeHtml(e.domain) + '</span>'
+            + (e.phase ? '<span class="ns-sep">·</span><span class="ns-phase">' + escapeHtml(e.phase) + '</span>' : '')
+            + '<span class="ns-sep">·</span><span class="ns-chapter">' + escapeHtml(e.chapter) + '</span>';
+          var trail = e.trail.length
+            ? '<div class="ns-trail">' + e.trail.map(escapeHtml).join('<span class="ns-arrow">›</span>') + '</div>'
+            : '';
+          return '<a class="ns-result" href="' + hrefFor(e) + '">'
+            + '<div class="ns-crumb">' + crumb + '</div>' + trail
+            + '<div class="ns-snippet">' + snippet(e.text, terms) + '</div></a>';
+        }).join('');
+      }
+
+      function mount(container) {
+        container.innerHTML =
+          '<input class="ns-input" type="search" placeholder="search the notes…" autocomplete="off" autofocus />'
+          + '<div class="ns-status"></div><div class="ns-results"></div>';
+        var input = container.querySelector('.ns-input');
+        var status = container.querySelector('.ns-status');
+        input.focus();
+        function run() {
+          var q = input.value.trim();
+          if (!q) { container.querySelector('.ns-results').innerHTML = ''; status.textContent = ''; return; }
+          status.textContent = index ? (index.length + ' sections indexed') : 'indexing…';
+          buildIndex().then(function () { status.textContent = index.length + ' sections indexed'; render(container, q); });
+        }
+        input.addEventListener('input', run);
+        buildIndex(); // warm the index as soon as the page opens
+      }
+
+      hook.mounted(function () {
+        fetchText(siteRoot() + '_sidebar.md').then(function (md) { structure = parseSidebar(md); });
+      });
+      hook.doneEach(function () {
+        var c = document.getElementById('notes-search');
+        if (!c) return;
+        if (structure) { mount(c); }
+        else { fetchText(siteRoot() + '_sidebar.md').then(function (md) { structure = parseSidebar(md); mount(c); }); }
+      });
+    }
+
+    window.$docsify = {
+      name: 'study notes',
+      loadSidebar: true,
+      loadNavbar: true,
+      coverpage: true,
+      homepage: 'home.md',
+      relativePath: true,
+      // with relativePath on, docsify probes each subfolder for the nav files
+      // first; alias every subfolder request back to the single root nav file so
+      // the sidebar/navbar render everywhere and we don't 404 on _sidebar/_navbar.
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md',
+        '/.*/_navbar.md': '/_navbar.md',
+      },
+      auto2top: true,
+      subMaxLevel: 3,
+      maxLevel: 4,
+      pagination: {
+        previousText: '←  prev',
+        nextText: 'next  →',
+        crossChapter: true,
+        crossChapterText: true,
+      },
+      plugins: [
+        // on phones, close the drawer after you pick a page.
+        // docsify's `body.close` means "drawer open" on mobile, so removing it closes.
+        function closeDrawerOnNav(hook) {
+          hook.doneEach(function () {
+            if (window.matchMedia('(max-width: 768px)').matches) {
+              document.body.classList.remove('close');
+            }
+          });
+        },
+        // local PDFs (and other static assets) under papers/ are real files, not
+        // markdown routes. docsify's router otherwise rewrites a relative link like
+        // ../papers/foo.pdf against the current page path (→ /foundations/papers/...
+        // → 404). Rewrite every papers/*.pdf anchor to a document-relative href and
+        // give it target=_blank so docsify ignores the click and the browser fetches
+        // the file directly. document-relative (no leading slash) also keeps it
+        // working under a GitHub Pages subpath.
+        function fixAssetLinks(hook) {
+          hook.doneEach(function () {
+            var anchors = document.querySelectorAll('.markdown-section a[href]');
+            anchors.forEach(function (a) {
+              var href = a.getAttribute('href') || '';
+              var m = href.match(/papers\/[^?#"']+\.pdf/i);
+              if (m) {
+                a.setAttribute('href', m[0]);
+                a.setAttribute('target', '_blank');
+                a.setAttribute('rel', 'noopener');
+              }
+            });
+          });
+        },
+        notesSearch,
+      ],
+    };
+  </script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@3"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-pagination@2/dist/docsify-pagination.min.js"></script>
+</body>
+</html>

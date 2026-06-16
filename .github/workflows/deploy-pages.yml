@@ -1,0 +1,46 @@
+name: Deploy notes to GitHub Pages
+
+# Optional deploy workflow for a notes-architect site.
+# Copy to .github/workflows/deploy-pages.yml, then enable Pages → "GitHub Actions"
+# in the repo settings. Docsify is a no-build static site, so we just publish the
+# notes/ folder as-is. If your default branch isn't `main`, update `branches:` below.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'notes/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+# Permissions the deploy-pages action needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let an in-progress production deploy finish; queue the newest, don't cancel.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload notes/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./notes
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

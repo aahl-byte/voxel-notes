@@ -1,0 +1,11 @@
+# local Claude project state — not part of the published site
+.claude/
+
+# macOS
+.DS_Store
+
+# editor cruft
+*.swp
+*~
+.idea/
+.vscode/
